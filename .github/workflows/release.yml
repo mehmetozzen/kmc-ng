@@ -1,0 +1,139 @@
+# Build the KMC bundle and publish it as a release asset.
+#
+# The Docker image in mehmetozzen/server fetches this release instead of
+# Kaltura's, so the artefact has to match theirs byte-for-byte in shape:
+# a zip holding one directory whose root contains index.html, the hashed
+# bundles, and the deploy/ + deploy_v7/ folders. docker/app/Dockerfile
+# locates it with `find -maxdepth 2 -name index.html`.
+#
+# Tag names may diverge from upstream (v7.20.0-mn.1), but deploy/config.ini
+# keeps component.version=v7.20.0 on purpose: the server seeds its ui_conf
+# rows from that value and looks them up again with the version in
+# configurations/base.ini. Renaming it there would break the KMC preview
+# player rather than anything visible at build time.
+
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  # Manual runs build and upload an artefact but never publish: the release
+  # step below only fires for tags.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Angular 11 and its webpack cannot run on a modern Node: OpenSSL 3
+      # (Node 17+) breaks the build's hashing, and the CLI refuses newer majors.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '14'
+          cache: npm
+
+      # setup-node pairs Node 14 with npm 6, which only understands
+      # lockfileVersion 1 — it silently rewrites package-lock.json and drops
+      # the packages section, so anyone on npm 7+ then gets a broken tree.
+      # npm 8 still runs on Node 14 and leaves the file alone.
+      - name: Upgrade npm
+        run: |
+          npm install -g npm@8
+          npm --version
+
+      # --legacy-peer-deps: the dependency graph predates npm 7's strict peer
+      # resolution (@angular/cdk@9 against @angular/common@11) and will not
+      # install without it.
+      # npm install rather than npm ci: the lock has a dead transitive
+      # dependency removed from it, which npm ci rejects as out of sync.
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+
+      - name: Verify the lock file survived
+        run: |
+          version=$(node -p "require('./package-lock.json').lockfileVersion")
+          if [ "$version" != "2" ]; then
+            echo "::error::package-lock.json was rewritten to lockfileVersion $version"
+            exit 1
+          fi
+
+      - name: Build
+        run: npm run build:prod
+
+      - name: Assemble the bundle
+        id: assemble
+        run: |
+          set -euo pipefail
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            version="${{ github.ref_name }}"
+          else
+            version="dev-$(git rev-parse --short HEAD)"
+          fi
+          name="kmc-ng-${version}"
+
+          mkdir -p "release/${name}"
+          cp -R dist/. "release/${name}/"
+          # Shipped alongside the bundle, not built into it: entrypoint.sh feeds
+          # deploy/config.ini to deploy_v2.php to seed the ui_conf rows.
+          cp -R deploy deploy_v7 "release/${name}/"
+
+          (cd release && zip -qr "${name}.zip" "${name}")
+
+          echo "version=${version}"            >> "$GITHUB_OUTPUT"
+          echo "name=${name}"                  >> "$GITHUB_OUTPUT"
+          echo "zip=release/${name}.zip"       >> "$GITHUB_OUTPUT"
+
+      # Catches a build that "succeeded" but produced nothing usable — the
+      # image would otherwise fail much later, inside docker build.
+      - name: Check the bundle is complete
+        run: |
+          set -euo pipefail
+          dir="release/${{ steps.assemble.outputs.name }}"
+          for path in index.html deploy/config.ini deploy_v7 i18n assets; do
+            [ -e "$dir/$path" ] || { echo "::error::missing $path"; exit 1; }
+          done
+          ls "$dir"/main.*.js    >/dev/null || { echo "::error::no main bundle"; exit 1; }
+          ls "$dir"/runtime.*.js >/dev/null || { echo "::error::no runtime bundle"; exit 1; }
+          grep -q "component.version" "$dir/deploy/config.ini"
+
+          # The Dockerfile finds the bundle with `find -maxdepth 2 -name index.html`.
+          rm -rf /tmp/unzipcheck && mkdir -p /tmp/unzipcheck
+          unzip -q "${{ steps.assemble.outputs.zip }}" -d /tmp/unzipcheck
+          found=$(find /tmp/unzipcheck -maxdepth 2 -name index.html | wc -l)
+          [ "$found" = "1" ] || { echo "::error::index.html not at depth 2 (found $found)"; exit 1; }
+
+          echo "bundle size: $(du -sh "$dir" | cut -f1), zip: $(du -h "${{ steps.assemble.outputs.zip }}" | cut -f1)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.assemble.outputs.name }}
+          path: ${{ steps.assemble.outputs.zip }}
+          retention-days: 30
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.assemble.outputs.zip }}
+          generate_release_notes: true
+          body: |
+            KMC build of `${{ github.ref_name }}`.
+
+            Point the server image at it:
+
+            ```
+            docker build --build-arg KMCNG_VERSION=${{ github.ref_name }} ...
+            ```
+
+            Built from ${{ github.sha }} with Node 14 / npm 8.

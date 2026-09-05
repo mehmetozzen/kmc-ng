@@ -60,9 +60,8 @@ export class ContentRoomViewService extends KmcDetailsViewBaseService<ContentRoo
     }
 
     isAvailable(args: ContentRoomViewArgs): boolean {
-        const section = args.section === ContentRoomViewSections.ResolveFromActivatedRoute ? this._getSectionFromActivatedRoute(args.activatedRoute, args.room) : args.section;
-        this._logger.info(`handle isAvailable action by user`, { roomId: args.room.id, section });
-        return this._isSectionEnabled(section, args.room);
+        // Rooms needs Newrow, which a self-hosted deployment does not run.
+        return false;
     }
 
     private _getSectionFromActivatedRoute(activatedRoute: ActivatedRoute, room: KalturaRoomEntry | KalturaMediaEntry): ContentRoomViewSections {

@@ -24,16 +24,8 @@ export class ContentRoomsMainViewService extends KmcMainViewBaseService {
     }
 
     isAvailable(): boolean {
-        return this._appPermissions.hasAnyPermissions([
-            KMCPermissions.CONTENT_MANAGE_BASE,
-            KMCPermissions.CONTENT_MANAGE_METADATA,
-            KMCPermissions.CONTENT_MANAGE_ASSIGN_CATEGORIES,
-            KMCPermissions.CONTENT_MANAGE_THUMBNAIL,
-            KMCPermissions.CONTENT_MANAGE_SCHEDULE,
-            KMCPermissions.CONTENT_MANAGE_ACCESS_CONTROL,
-            KMCPermissions.CONTENT_MANAGE_CUSTOM_DATA,
-            KMCPermissions.CONTENT_MANAGE_DELETE
-        ]);
+        // Rooms needs Newrow, which a self-hosted deployment does not run.
+        return false;
     }
 
     getRoutePath(): string {

@@ -22,7 +22,8 @@ export class SettingsAccountInformationMainViewService extends KmcMainViewBaseSe
     }
 
     isAvailable(): boolean {
-        return true;
+        // Kaltura's SaaS upgrade page: its contact form goes to Kaltura sales, which a self-hosted deployment does not use.
+        return false;
     }
 
     getRoutePath(): string {

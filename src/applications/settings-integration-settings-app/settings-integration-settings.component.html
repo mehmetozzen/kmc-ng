@@ -3,18 +3,11 @@
       <kAccountInfo></kAccountInfo>
     </div>
 
-    <div class="kNotifications">
-      <div class="kTitle">{{'applications.settings.integrationSettings.accountInfo.distribution.title' | translate}}</div>
-      <div class="kSubTitle">{{'applications.settings.integrationSettings.accountInfo.distribution.text' | translate}}</div>
-      <kDistributionProfiles class="profiles"></kDistributionProfiles>
-    </div>
+    <!-- YouTube distribution, Webex and Zoom are left out: they need the vendor's app
+         credentials and an internet-reachable server, which a self-hosted deployment does not have. -->
 
     <kEntitlement class="kEntitlement"></kEntitlement>
 
     <kTeamsIntegration *ngIf="_enableTeamsIntegration" class="kEntitlement"></kTeamsIntegration>
-
-    <kWebexIntegration class="kEntitlement"></kWebexIntegration>
-
-    <kZoomIntegration class="kEntitlement"></kZoomIntegration>
 
 </div>
